@@ -56,7 +56,7 @@ Dividing nodes into shards
 - Nodes // shards = nps
 - Sort them so they come to the same conclusion
 - For j, name in enumerate(list of nodes):
-    - Shard i % 2
+    - Shard i % numshards
 - problem: resharding, more movement of sharding
 
 Dividing keys into shards:
