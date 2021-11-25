@@ -223,21 +223,17 @@ def get_VC():
 # – Response body is JSON {"shard-ids": [<ID>, <ID>, ...]}.
 # – Shard identifiers can be strings or numbers and their order is not important. For example, if you
 # have shards "s1" and "s2" the response body could be {"shard-ids": ["s2", "s1"]}.
-@keyvalue_app.route("/shard/ids", methods = ['PUT', 'GET', 'DELETE'])
+@keyvalue_app.route("/shard/ids", methods = ['GET'])
 def shard_client():
-    if request.method == 'GET':
-        pass
+    pass
 
-
-#– Response code is 200 (Ok).
+# Retrieve the shard identifier of the responding node, unconditionally.
+# – Response code is 200 (Ok).
 # – Response body is JSON {"node-shard-id": <ID>}.
-# – Here is an example, if the node at <IP:PORT> belonged to the shard "apples":
-
-@keyvalue_app.route("/shard/node-shard-id", methods = ['PUT', 'GET', 'DELETE'])
-
+@keyvalue_app.route("/shard/node-shard-id", methods = ['GET'])
 def shard_node_client():
-    if request.method == 'GET':
-        pass
+    pass
+
 
 #GET
 #
@@ -247,7 +243,22 @@ def shard_node_client():
 # – Response code is 200 (Ok).
 # – Response body is JSON {"shard-members": ["<IP:PORT>", "<IP:PORT>", ...]}.
 # •If the shard <ID> does not exist, then respond with a 404 error.
+@keyvalue_app.route("/shard/members/<ID>", methods = ['GET'])
+def shard_members_client(ID):
+    pass
 
+#GET
+#
+#
+# Look up the number of key-value pairs stored by the indicated shard. To implement this endpoint, it may be
+# necessary to delegate the request to a node in the indicated shard.
+# •If the shard <ID> exists, then return the number of key-value pairs are stored in the shard.
+# – Response code is 200 (Ok).
+# – Response body is JSON {"shard-key-count": <INTEGER>}.
+# •If the shard <ID> does not exist, then respond with a 404 error
+@keyvalue_app.route("/shard/key-count/<ID>", methods = ['GET'])
+def shard_keycount_client(ID):
+    pass
 
 #PUT
 #
@@ -260,30 +271,9 @@ def shard_node_client():
 # – Response body is JSON {"result": "node added to shard"}
 # If either the shard <ID> or the node <IP:PORT> doesn’t exist, respond with a 404 error.
 # For other error conditions, respond with a 400 error. This isn’t tested
-
-
-@keyvalue_app.route("/shard/members/<ID>", methods = ['PUT', 'GET', 'DELETE'])
-
-def shard_members_client():
-    if request.method == 'GET':
-        pass
-    elif request.method == 'PUT':
-        pass
-
-#GET
-#
-#
-# Look up the number of key-value pairs stored by the indicated shard. To implement this endpoint, it may be
-# necessary to delegate the request to a node in the indicated shard.
-# •If the shard <ID> exists, then return the number of key-value pairs are stored in the shard.
-# – Response code is 200 (Ok).
-# – Response body is JSON {"shard-key-count": <INTEGER>}.
-# •If the shard <ID> does not exist, then respond with a 404 error
-
-@keyvalue_app.route("/shard/key-count/<ID>", methods = ['PUT', 'GET', 'DELETE'])
-def shard_keycount_client():
-    if request.method == 'GET':
-        pass
+@keyvalue_app.route("/shard/add-member/<ID>", methods = ['PUT'])
+def shard_members_client(ID):
+    pass
 
 
 #PUT REQUEST
@@ -299,11 +289,9 @@ def shard_keycount_client():
 # •If the fault-tolerance invariant would not be violated, then reshard the store.
 # – Response code is 200 (Ok).
 # – Response body is JSON {"result": "resharded"}
-@keyvalue_app.route("/shard/reshard", methods = ['PUT', 'GET', 'DELETE'])
-
+@keyvalue_app.route("/shard/reshard", methods = ['PUT'])
 def shard_reshard_client():
-    if request.method == 'PUT':
-        pass
+    pass
 
 
 
