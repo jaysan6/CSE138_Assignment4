@@ -224,7 +224,6 @@ def get_VC():
 # – Shard identifiers can be strings or numbers and their order is not important. For example, if you
 # have shards "s1" and "s2" the response body could be {"shard-ids": ["s2", "s1"]}.
 @keyvalue_app.route("/shard/ids", methods = ['PUT', 'GET', 'DELETE'])
-
 def shard_client():
     if request.method == 'GET':
         pass
