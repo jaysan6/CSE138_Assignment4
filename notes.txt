@@ -68,3 +68,6 @@ Need It to be deterministically random (not entirely random)
     - Sha1, sha256, md5
 - hashlub.sha1(‘hello’.encode(‘utf8’).
 - Hash = h.hexdigest()
+
+
+docker run --rm -p 8082:8090 --net=asg4net --ip=10.10.0.2 --name=alice -e=SHARD_COUNT=2 -e=SOCKET_ADDRESS=10.10.0.2:8090 -e=VIEW=10.10.0.2:8090,10.10.0.3:8090,10.10.0.4:8090,10.10.0.5:8090,10.10.0.6:8090,10.10.0.7:8090 asg4img

@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify
 import os, requests, time, threading
-from helper_func import designate_shard, list_less1, list_less2, max_VC, concurrent, equal
+from helper_func import designate_shard, key_to_shard, list_less1, list_less2, max_VC, concurrent, equal, check_null
 
 keyvalue_app = Flask(__name__)
 
 VIEWERS = os.environ.get("VIEW")
 CURRENT_REPLICA = os.environ.get("SOCKET_ADDRESS")
-SHARD_COUNT = os.environ.get("SHARD_COUNT")
+SHARD_COUNT = int(os.environ.get("SHARD_COUNT"))
 
 @keyvalue_app.route("/kvs", methods = ['PUT', 'GET', 'DELETE']) # if no key passed
 def empty_key1():
@@ -24,6 +24,19 @@ def keyvalue_store(key):
 
     content = request.get_json()
     response = dict()
+    # designated_shard = key_to_shard(key, SHARD_COUNT)
+    # if designated_shard != node_to_shard[CURRENT_REPLICA]:
+    #     forward_node = shard_to_node(designated_shard)
+    #     for n in forward_node:
+    #         url = f"http://{n}/kvs/{key}"
+    #         try:
+    #             response = requests.put(url, json=content)
+    #         except requests.exceptions.ConnectionError:
+    #                 delete = set(view) - {n}
+    #                 for v in delete:
+    #                     url = "http://{}/view".format(v)
+    #                     requests.delete(url, json = {"socket-address": n}, timeout=2) # we actually find that the replica died
+
 
     for q in queue:
         VC, k, val, IP, op, w = q  # extract necessary data from prior request
@@ -44,9 +57,9 @@ def keyvalue_store(key):
 
     ## if broadcast is true, then broadcast message, otherwise client message
     if not broadcast:
-        if VC_sender is not None:  # check if CLIENT message satisfies causal dependencies
-            if not concurrent(VC_local, VC_sender) and not equal(VC_sender, VC_local):
-                response = {"error": "Causal dependencies not satisfied"}
+        if VC_sender is not None and not check_null(VC_sender, view):  # check if CLIENT message satisfies causal dependencies
+            if not concurrent(VC_local, VC_sender, view) and not equal(VC_sender, VC_local, view):
+                response = {"error": "Causal dependencies not satisfied", "view": view}
                 return jsonify(response), 503
 
     def retry_broadcast(**kwargs):  ## multithreading (background retry broadcasts)
@@ -155,7 +168,7 @@ def keyvalue_store(key):
             response = {"result": "found", "value":  store[key], "causal-metadata": VC_local}
             return jsonify(response), 200
         else:
-            response = {"error": "Key does not exist", "view": queue, "store":store, "broadcast": broadcast, "VC_local": content}
+            response = {"error": "Key does not exist", "view": view, "store":store}
             return jsonify(response), 404
     elif request.method == 'DELETE':
         cc = True
@@ -174,7 +187,7 @@ def keyvalue_store(key):
             return jsonify(response), 404
 
 @keyvalue_app.route("/view", methods = ['PUT', 'GET', 'DELETE'])
-def view():
+def process_view():
     if request.method == 'PUT':
         if not request.is_json:  # if the request is a JSON object
             return jsonify({"error":"not a valid JSON object"}), 400
@@ -214,6 +227,10 @@ def update_new_replica():
 @keyvalue_app.route("/VC", methods = ['GET'])
 def get_VC():
     return jsonify(VC_local), 200
+
+@keyvalue_app.route("/access-store", methods = ['GET'])
+def get_store():
+    return jsonify(store), 200
 
 ##shard operations
 
@@ -260,8 +277,25 @@ def shard_members_client(ID):
 # •If the shard <ID> does not exist, then respond with a 404 error
 @keyvalue_app.route("/shard/key-count/<ID>", methods = ['GET'])
 def shard_keycount_client(ID):
-    ## len(store)
-    pass
+    if ID not in shard_to_node:
+        return jsonify({"error": "no such shard ID exists"}), 404
+    else:
+        processes = shard_to_node.get(ID)
+        if CURRENT_REPLICA in processes:
+            count = len(store)
+        else:
+            for node in processes:
+                url = f"http://{node}/shard/key-count/{ID}"
+                try:
+                    resp = requests.get(url)
+                    count = resp.get("shard-key-count")
+                    break
+                except requests.exceptions.ConnectionError:
+                    delete = set(view) - {node}
+                    for v in delete:
+                        url = "http://{}/view".format(v)
+                        requests.delete(url, json = {"socket-address": node}, timeout=2) # we actually find that the replica died
+        return jsonify({"shard-key-count": count}), 200
 
 #PUT
 #
@@ -275,12 +309,17 @@ def shard_keycount_client(ID):
 # If either the shard <ID> or the node <IP:PORT> doesn’t exist, respond with a 404 error.
 # For other error conditions, respond with a 400 error. This isn’t tested
 @keyvalue_app.route("/shard/add-member/<ID>", methods = ['PUT'])
-def shard_members_client(ID):
-    pass
+def add_member(ID):
+    node = request.get_json()["socket-address"]
+    if ID in shard_to_node and node in total_view:
+        node_to_shard[node] = ID
+        shard_to_node[ID].append(node)
+        return jsonify({"result": "node added to shard"}), 200
+    else:
+        return jsonify({"error": "node or shard does not exist"}), 404
 
 
 #PUT REQUEST
-
 # Trigger a reshard into <INTEGER> shards, maintaining fault-tolerance invariant that each shard contains at
 # least two nodes. There’s more information in the section Resharding the key-value store, below.
 # •If the fault-tolerance invariant would be violated by resharding to the new shard count, then return an
@@ -301,7 +340,7 @@ def shard_reshard_client():
 if __name__ == '__main__':
     store = dict()
     total_view = VIEWERS.split(',')  ## parse VIEW string (given as environment variable)
-    VC_local = {addy:"0" for addy in view} ## map replica sockets to their VC entry
+    VC_local = {addy:"0" for addy in total_view} ## map replica sockets to their VC entry
     queue = list()  # ready queue used in causal broadcast if dependencies not satisfied
     
     ### SHARD ASSIGNMENTS ON STARTUP

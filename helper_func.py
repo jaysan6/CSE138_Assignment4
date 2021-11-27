@@ -13,7 +13,8 @@ from hashlib import sha1
 def key_to_shard(key, num_shard):
     hash_str = sha1(key.encode('utf8'))
     val = hash_str.hexdigest()
-    return int(val, 16) % num_shard
+    return f"s{int(val, 16) % num_shard}"
+
 
 # performs the shard to node and node to shard mappings
 # returns TWO dictionaries, one mapping node to shard, another mapping shard to node
@@ -23,12 +24,13 @@ def designate_shard(view, num_shard):
         return None, None, False
     sorted_list = sorted(view)
     map_IP_to_shard = dict()
-    map_shard_to_IP = {f"sh{_}": [] for _ in range(num_shard)}
+    map_shard_to_IP = {f"s{_}": [] for _ in range(num_shard)}
     for i, IP in enumerate(sorted_list):
         key = f"s{i % num_shard}"
         map_IP_to_shard[IP] = key
         map_shard_to_IP[key].append(IP)
     return map_IP_to_shard, map_shard_to_IP, True
+
 
 #checks if cond 1 of causal broadcast is violated
 def list_less1(VC_message, VC_local, p):
@@ -42,19 +44,22 @@ def list_less2(VC1,  VC2, sender):
             return False
     return True
 
-def concurrent(VC1, VC2):
-    return (not happens_before(VC1, VC2)) and (not happens_before(VC2, VC1))
 
-def equal(VC1, VC2):
-    shared_processes = VC1.keys() & VC2.keys()
-    for p in shared_processes:
+def check_null(VC, view):  ## makes sure you observe the subset of relevant shard view before checking causal consistency
+    subset = {w:VC[w] for w in view}
+    return all(i in view and j=="0" for i,j in subset.items())
+
+def concurrent(VC1, VC2, view):
+    return (not happens_before(VC1, VC2, view)) and (not happens_before(VC2, VC1, view))
+
+def equal(VC1, VC2, view):
+    for p in view:
         if VC1[p] != VC2[p]:
             return False
     return True
 
-def happens_before(VC1, VC2):
-    shared_processes = VC1.keys() & VC2.keys()
-    for p in shared_processes:
+def happens_before(VC1, VC2, view):
+    for p in view:
         if(int(VC1[p]) > int(VC2[p])):
             return False
     return True
