@@ -1,13 +1,12 @@
 from flask import Flask, request, jsonify
-import os, requests
-from helper_func import list_less1, list_less2, max_VC, happens_before, concurrent, equal
-import time
-import threading
+import os, requests, time, threading
+from helper_func import designate_shard, list_less1, list_less2, max_VC, concurrent, equal
 
 keyvalue_app = Flask(__name__)
 
 VIEWERS = os.environ.get("VIEW")
 CURRENT_REPLICA = os.environ.get("SOCKET_ADDRESS")
+SHARD_COUNT = os.environ.get("SHARD_COUNT")
 
 @keyvalue_app.route("/kvs", methods = ['PUT', 'GET', 'DELETE']) # if no key passed
 def empty_key1():
@@ -218,21 +217,23 @@ def get_VC():
 
 ##shard operations
 
-#retrieve a list of all hard identifiers unconditionally
+#retrieve a list of all shard identifiers unconditionally
 # – Response code is 200 (Ok).
 # – Response body is JSON {"shard-ids": [<ID>, <ID>, ...]}.
 # – Shard identifiers can be strings or numbers and their order is not important. For example, if you
 # have shards "s1" and "s2" the response body could be {"shard-ids": ["s2", "s1"]}.
 @keyvalue_app.route("/shard/ids", methods = ['GET'])
 def shard_client():
-    pass
+    response = {"shard-ids": list(shard_to_node.keys())}
+    return jsonify(response), 200
 
 # Retrieve the shard identifier of the responding node, unconditionally.
 # – Response code is 200 (Ok).
 # – Response body is JSON {"node-shard-id": <ID>}.
 @keyvalue_app.route("/shard/node-shard-id", methods = ['GET'])
 def shard_node_client():
-    pass
+    response = {"node-shard-id": node_to_shard.get(CURRENT_REPLICA)}
+    return jsonify(response), 200
 
 
 #GET
@@ -245,7 +246,11 @@ def shard_node_client():
 # •If the shard <ID> does not exist, then respond with a 404 error.
 @keyvalue_app.route("/shard/members/<ID>", methods = ['GET'])
 def shard_members_client(ID):
-    pass
+    if ID not in shard_to_node:
+        return jsonify({"error": "no such shard ID exists"}), 404
+    else:
+        response = {"shard-members": shard_to_node.get(ID)}
+        return response, 200
 
 #GET
 #
@@ -258,6 +263,7 @@ def shard_members_client(ID):
 # •If the shard <ID> does not exist, then respond with a 404 error
 @keyvalue_app.route("/shard/key-count/<ID>", methods = ['GET'])
 def shard_keycount_client(ID):
+    ## len(store)
     pass
 
 #PUT
@@ -297,31 +303,35 @@ def shard_reshard_client():
 
 if __name__ == '__main__':
     store = dict()
-    view = VIEWERS.split(',')  ## parse VIEW string (given as environment variable)
+    total_view = VIEWERS.split(',')  ## parse VIEW string (given as environment variable)
     VC_local = {addy:"0" for addy in view} ## map replica sockets to their VC entry
     queue = list()  # ready queue used in causal broadcast if dependencies not satisfied
+    
+    ### SHARD ASSIGNMENTS ON STARTUP
+    node_to_shard, shard_to_node, condition = designate_shard(total_view, SHARD_COUNT)
+    shard = node_to_shard[CURRENT_REPLICA]
+    view = shard_to_node.get(shard) # this is the new local view
 
+    restart_view = set(view) - {CURRENT_REPLICA}
     update_kvs = None
-    for v in view:    ## check on the replicas in the view and see if CURRENT needs to be updated
-        if v != CURRENT_REPLICA:
-            try:  ## add current to the other replicas' view
-                url = "http://{}/view".format(v)
-                broadcast_json = {"socket-address": CURRENT_REPLICA}
-                response = requests.put(url, json = broadcast_json, timeout = 2)
-                if response.status_code == 201 or response.status_code == 200:  # if it can be put, ask for replica kvs (for consistency)
-                    update_kvs = True
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-                pass
+    for v in restart_view:    ## check on the replicas in the view and see if CURRENT needs to be updated
+        try:  ## add current to the other replicas' view
+            url = "http://{}/view".format(v)
+            broadcast_json = {"socket-address": CURRENT_REPLICA}
+            response = requests.put(url, json = broadcast_json, timeout = 2)
+            if response.status_code == 201 or response.status_code == 200:  # if it can be put, ask for replica kvs (for consistency)
+                update_kvs = True
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            pass
 
     if update_kvs:  ## if this is a replica that starts up in an already-existing kvs, set own kvs to another replica's kvs
-        for v in view:
-            if v != CURRENT_REPLICA:
-                try:
-                    url = "http://{}/share".format(v)
-                    response = requests.get(url, timeout = 2)
-                    store, VC_local = response.json()
-                    break   ## Since they are all replicas, if we can successfully update 1, then dont need to continue iterating
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-                    pass  ## keep trying other replicas if they fail
+        for v in restart_view:
+            try:
+                url = "http://{}/share".format(v)
+                response = requests.get(url, timeout = 2)
+                store, VC_local = response.json()
+                break   ## Since they are all replicas, if we can successfully update 1, then dont need to continue iterating
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                pass  ## keep trying other replicas if they fail
 
     keyvalue_app.run('0.0.0.0', port = 8090, debug = True)

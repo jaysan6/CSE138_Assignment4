@@ -14,7 +14,22 @@ def key_to_shard(key, num_shard):
     hash_str = sha1(key.encode('utf8'))
     val = hash_str.hexdigest()
     return int(val, 16) % num_shard
-    
+
+# performs the shard to node and node to shard mappings
+# returns TWO dictionaries, one mapping node to shard, another mapping shard to node
+# returns None if the "2 nodes per shard" cannot be satisfied
+def designate_shard(view, num_shard):
+    if len(view) // num_shard < 2:
+        return None, None, False
+    sorted_list = sorted(view)
+    map_IP_to_shard = dict()
+    map_shard_to_IP = {f"sh{_}": [] for _ in range(num_shard)}
+    for i, IP in enumerate(sorted_list):
+        key = f"s{i % num_shard}"
+        map_IP_to_shard[IP] = key
+        map_shard_to_IP[key].append(IP)
+    return map_IP_to_shard, map_shard_to_IP, True
+
 #checks if cond 1 of causal broadcast is violated
 def list_less1(VC_message, VC_local, p):
     return (int(VC_message[p]) == int(VC_local[p])+1)
