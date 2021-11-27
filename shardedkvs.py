@@ -261,7 +261,10 @@ def shard_members_client(ID):
 @keyvalue_app.route("/shard/key-count/<ID>", methods = ['GET'])
 def shard_keycount_client(ID):
     ## len(store)
-    pass
+    if ID in shard_to_node:
+        response = {"shard-key-count": len(shard_to_node)}
+        return jsonify(response), 200
+    return jsonify({"error": "no such shard ID exists"}), 404  # if shard <ID> doesn't exist
 
 #PUT
 #
@@ -276,7 +279,12 @@ def shard_keycount_client(ID):
 # For other error conditions, respond with a 400 error. This isn’t tested
 @keyvalue_app.route("/shard/add-member/<ID>", methods = ['PUT'])
 def shard_members_client(ID):
-    pass
+    if ID in shard_to_node and shard_to_node[ID] in view:
+        node_to_shard.append(shard_to_node[ID])  # add node to shard
+        response = {"result": "node added to shard"}
+        return response, 200
+
+    return jsonify({"error": "no such shard ID exists"}), 404
 
 
 #PUT REQUEST
@@ -303,7 +311,7 @@ if __name__ == '__main__':
     total_view = VIEWERS.split(',')  ## parse VIEW string (given as environment variable)
     VC_local = {addy:"0" for addy in view} ## map replica sockets to their VC entry
     queue = list()  # ready queue used in causal broadcast if dependencies not satisfied
-    
+
     ### SHARD ASSIGNMENTS ON STARTUP
     node_to_shard, shard_to_node, condition = designate_shard(total_view, SHARD_COUNT)
     shard = node_to_shard[CURRENT_REPLICA]
