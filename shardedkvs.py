@@ -224,16 +224,14 @@ def get_VC():
 # have shards "s1" and "s2" the response body could be {"shard-ids": ["s2", "s1"]}.
 @keyvalue_app.route("/shard/ids", methods = ['GET'])
 def shard_client():
-    response = {"shard-ids": list(shard_to_node.keys())}
-    return jsonify(response), 200
+    return jsonify({"shard-ids": list(shard_to_node.keys())}), 200
 
 # Retrieve the shard identifier of the responding node, unconditionally.
 # – Response code is 200 (Ok).
 # – Response body is JSON {"node-shard-id": <ID>}.
 @keyvalue_app.route("/shard/node-shard-id", methods = ['GET'])
 def shard_node_client():
-    response = {"node-shard-id": node_to_shard.get(CURRENT_REPLICA)}
-    return jsonify(response), 200
+    return jsonify({"node-shard-id": node_to_shard.get(CURRENT_REPLICA)}), 200
 
 
 #GET
@@ -249,8 +247,7 @@ def shard_members_client(ID):
     if ID not in shard_to_node:
         return jsonify({"error": "no such shard ID exists"}), 404
     else:
-        response = {"shard-members": shard_to_node.get(ID)}
-        return response, 200
+        return jsonify({"shard-members": shard_to_node.get(ID)}), 200
 
 #GET
 #
