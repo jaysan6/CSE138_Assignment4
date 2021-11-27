@@ -1,0 +1,73 @@
+Assignment 4
+
+- Shared kvs
+    - Each shard has several replicas
+- Shard
+    - Purpose is to store less than the whole kvs
+    - Replicas in shard is for fault tolerance
+- Sharding API
+- View API is the same as AS3
+
+Store -> shards -> replicas/nodes
+
+- Env variable SHARD_COUNT
+    - Only on initial startup
+    - If u use math, no communication
+        - hash(x) mod SHARD_COUNT
+    - resharding only when a request is given
+    - Need to store assignments in start up
+
+- If 10 shards and only have 19 nodes (give up)
+    - Don’t need to worry act env variable values (omniscient testing)
+- Need at least 2 fault tolerant nodes in each shard
+    - Nodes // shard
+
+- If not specified shard count
+    - Return errors until a shard is given
+        - Boolean shard = T/F
+    - When become part of a shard, replicate everything
+        - Same as AS3 start up in add member request
+- Assignment of shard is available by all shards
+    - Mapping of node to shard or shard to node?
+
+
+- Get key count —> delegate to the respective shard
+- Causal broadcast within a shard
+- What about resharding? —> perhaps just restart causal metadata after replicating
+
+Add member 
+- Clone key value pairs in the shard in which its joining
+
+Resharding
+- Dont need to update it automatically
+Hash functions (random numbers) are good enough
+
+Need to check if key can be put in shard to be used
+- If not, then forward it to the correct shard
+
+During reshards, test script sleeps
+
+For deliverability, look at parts of VC that are relevant for cluster
+- Propagate the entire VC with all value mappings
+- Or have a dictionary of {shard : VC, shard: VC…}
+
+Dividing nodes into shards
+- A B C D E
+- Nodes // shards = nps
+- Sort them so they come to the same conclusion
+- For j, name in enumerate(list of nodes):
+    - Shard i % numshards
+- problem: resharding, more movement of sharding
+
+Dividing keys into shards:
+hash(key) % N
+Need It to be deterministically random (not entirely random)
+- 2 processes need to arrive to the same conclusion
+- Can’t use default hash in python
+- Hashlib
+    - Sha1, sha256, md5
+- hashlub.sha1(‘hello’.encode(‘utf8’).
+- Hash = h.hexdigest()
+
+
+docker run --rm -p 8082:8090 --net=asg4net --ip=10.10.0.2 --name=alice -e=SHARD_COUNT=2 -e=SOCKET_ADDRESS=10.10.0.2:8090 -e=VIEW=10.10.0.2:8090,10.10.0.3:8090,10.10.0.4:8090,10.10.0.5:8090,10.10.0.6:8090,10.10.0.7:8090 asg4img
