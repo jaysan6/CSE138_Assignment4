@@ -24,10 +24,13 @@ def keyvalue_store(key):
     if not key.strip():  # if a bunch of spaces are passed as a key
         return jsonify({"error":"no key pased"}), 404
 
+    if not inShard:
+        return jsonify({"error":"not in a shard"}), 400
+
     content = request.get_json()
     response = dict()
 
-    designated_shard = key_to_shard(key, SHARD_COUNT)
+    designated_shard = key_to_shard(key, SHARD_COUNT)  ## forward the request if key not supposed to be put in shard
     if designated_shard != node_to_shard[CURRENT_REPLICA]:
         forward_node = shard_to_node.get(designated_shard)
         for n in forward_node:
@@ -224,9 +227,19 @@ def process_view():
             response = {"error": "View has no such replica"}
             return jsonify(response), 404
 
-@keyvalue_app.route("/share", methods = ['GET'])
+@keyvalue_app.route("/share", methods = ['GET', 'PUT'])
 def update_new_replica():
-    return jsonify([store, VC_local]), 200 ## return the kvs
+    if request.method == "GET":
+        return jsonify([store, VC_local]), 200 ## return the kvs
+    else:
+        update = request.get_json()  # this replaces the local kvs, vc with the json specified data
+        vc = update.get("VC")
+        kvs = update.get("kvs")
+        for i,j in kvs.items():
+            store[i] = j
+        for p,q in vc.items():
+            VC_local[p] = q
+        return jsonify({"result": "updated"}), 200
 
 @keyvalue_app.route("/VC", methods = ['GET'])
 def get_VC():
@@ -293,7 +306,7 @@ def shard_keycount_client(ID):
         processes = shard_to_node.get(ID)
         if CURRENT_REPLICA in processes:
             count = len(store)
-        else:
+        else:  ## ask a process that actually is in the specified shard for the key count
             for node in processes:
                 url = f"http://{node}/shard/key-count/{ID}"
                 try:
@@ -324,33 +337,35 @@ def shard_keycount_client(ID):
 def add_member(ID):
     node = request.get_json()["socket-address"]
 
-    if "broadcast" in request.get_json().keys():
+    if "broadcast" in request.get_json().keys():  ## add member to process' local shard mapping if a broadcast msg
         node_to_shard[node] = ID
         shard_to_node[ID].append(node)
         return jsonify({"result": "updated mapping"}), 201
 
     if ID in shard_to_node and node in total_view:
         node_to_shard[node] = ID
-        if update_kvs:
-            for node in shard_to_node[ID]:
-                try:
-                    url = f"http://{node}/share"
-                    response = requests.get(url, timeout = 2)
-                    kvs, vc = response.json()
-                    for i,j in kvs.items():
-                        store[i] = j
-                    for p,q in vc.items():
-                        VC_local[p] = q
-                    break   ## Since they are all replicas, if we can successfully update 1, then dont need to continue iterating
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-                    pass  ## keep trying other replicas if they fail
-        shard_to_node[ID].append(node)
-        view = shard_to_node.get(shard) # this is the new local view
-        for n in total_view:
+        view = shard_to_node.get(shard)
+        for n in total_view: ## broadcast the mapping update to all other processes
             url = f"http://{n}/shard/add-member/{ID}"
             json = {"socket-address":node, "broadcast":"0"}
             requests.put(url, json=json)
-        return jsonify({"result": "node added to shard"}), 200
+
+        url = f"http://{node}/share"
+        data = {"VC": VC_local, "kvs":store}
+        if CURRENT_REPLICA not in shard_to_node[ID]:  ## replicate the correct process' kvs to the newly added node
+            for n in shard_to_node[ID]:
+                u = f"http://{n}/share"
+                try:
+                    resp = requests.get(u)
+                    vc, kvs = resp.json()
+                    data["VC"] = vc
+                    data["kvs"] = kvs
+                    break
+                except requests.exceptions.ConnectionError:
+                    pass
+        requests.put(url, json=data)  ## replicate (see implementation in the endpoint)
+        shard_to_node[ID].append(node)
+        return jsonify({"result": "node added to shard", "data": data}), 200
     else:
         return jsonify({"error": "node or shard does not exist"}), 404
 
@@ -377,7 +392,7 @@ if __name__ == '__main__':
     VC_local = {addy:"0" for addy in total_view} ## map replica sockets to their VC entry
     queue = list()  # ready queue used in causal broadcast if dependencies not satisfied
     
-    inShard = SHARD_COUNT is not None
+    inShard = SHARD_COUNT is not None  # if a shard is not specified a count, cannot be used until added
     view = list()
 
     ### SHARD ASSIGNMENTS ON STARTUP
@@ -391,9 +406,9 @@ if __name__ == '__main__':
         for node in without_this_shard:
             url = f"http://{node}/shardcount"
             resp = requests.get(url)
-            sc = resp.json()["val"]
+            sc = resp.json()["val"]  ## extract the shard count from another pcoess in the view
             break
-        node_to_shard, shard_to_node, condition = designate_shard(without_this_shard, sc)
+        node_to_shard, shard_to_node, condition = designate_shard(without_this_shard, sc)  ## figure out the mapping using other process' data
         shard = {}
         view = [] # this is the new local view
         restart_view = {}
