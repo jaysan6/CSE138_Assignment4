@@ -25,22 +25,18 @@ def keyvalue_store(key):
     content = request.get_json()
     response = dict()
 
-    ## first use hash to designat key, then check if current needs do deal with the key
-    # if so, process the operation. otherwise, forward it to another process and return
-    # its reponse to the user
-
-    # designated_shard = key_to_shard(key, SHARD_COUNT)
-    # if designated_shard != node_to_shard[CURRENT_REPLICA]:
-    #     forward_node = shard_to_node(designated_shard)
-    #     for n in forward_node:
-    #         url = f"http://{n}/kvs/{key}"
-    #         try:
-    #             response = requests.put(url, json=content)
-    #         except requests.exceptions.ConnectionError:
-    #                 delete = set(view) - {n}
-    #                 for v in delete:
-    #                     url = "http://{}/view".format(v)
-    #                     requests.delete(url, json = {"socket-address": n}, timeout=2) # we actually find that the replica died
+    designated_shard = key_to_shard(key, SHARD_COUNT)
+    if designated_shard != node_to_shard[CURRENT_REPLICA]:
+        forward_node = shard_to_node.get(designated_shard)
+        for n in forward_node:
+            url = f"http://{n}/kvs/{key}"
+            if request.method == 'PUT':
+                response = requests.put(url, json=content)
+            elif request.method == 'DELETE':
+                response = requests.delete(url, json=content)
+            else:
+                response = requests.get(url, json=content)
+            return response.text, response.status_code
 
 
     for q in queue:
@@ -291,15 +287,10 @@ def shard_keycount_client(ID):
         else:
             for node in processes:
                 url = f"http://{node}/shard/key-count/{ID}"
-                try:
-                    resp = requests.get(url)
-                    count = resp.get("shard-key-count")
-                    break
-                except requests.exceptions.ConnectionError:
-                    delete = set(view) - {node}
-                    for v in delete:
-                        url = "http://{}/view".format(v)
-                        requests.delete(url, json = {"socket-address": node}, timeout=2) # we actually find that the replica died
+                resp = requests.get(url)
+                data = resp.json()
+                count = data.get("shard-key-count")
+                break
         return jsonify({"shard-key-count": count}), 200
 
 #PUT
