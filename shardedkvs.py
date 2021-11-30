@@ -304,7 +304,6 @@ def shard_keycount_client(ID):
         processes = shard_to_node.get(ID)
         if CURRENT_REPLICA in processes:
             count = len(store)
-            x = True
         else:  ## ask a process that actually is in the specified shard for the key count
             for node in processes:
                 url = f"http://{node}/shard/key-count/{ID}"
@@ -316,7 +315,7 @@ def shard_keycount_client(ID):
                 except requests.exceptions.ConnectionError:
                     pass
             x = False
-        return jsonify({"shard-key-count": count, "what": x}), 200
+        return jsonify({"shard-key-count": count}), 200
 
 #PUT
 #
@@ -385,12 +384,25 @@ def add_member(ID):
 def shard_reshard_client():
     req = request.get_json()
     if "broadcast" in req.keys():
+        # node to shard = req["map1"]
+        # shard to node = req["map2"]
+        # shardcount = len(ston) or req["ns"]
+        # for elements in store
+        #       key_to_shard(element, shardcount), if in a different shard, send put to all kvs in that shard
+        #       when successful, delete key from local kvs
+        #   otherwise continue
+        # replicate youself to all replicas in your share using put "/share" endpoint
+        # reset vector clocks? 
         pass
     new_shard = int(req["shard-count"])
     x,y,z = designate_shard(total_view, new_shard)
     if not z:
         return jsonify({"error": "Not enough nodes to provide fault tolerance with requested shard count"}), 400
     else:
+        # set mappings to x and y (node to shard = x, shard to node = y) -- use clear/update to do so
+        # broadcast the new mappings -- attach broadcast tag ( i guess send to myself?)
+        #    url /shard/reshard for one/ or all processes in each shard_to_node list --> keep in loop , with json = {"broadcast": None, "map1": x, "map2":y, "ns": newshard}
+        # see resharding algorithm in broadcast if statement above
         return jsonify({"result": "resharded"}), 200
 
 if __name__ == '__main__':
