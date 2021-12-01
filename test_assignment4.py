@@ -274,7 +274,6 @@ class TestHW4(unittest.TestCase):
             response = requests.get('http://{}:{}/kvs/{}'.format(hostname, instance.published_port, key),
                 json={'causal-metadata':self.causal_metadata['metadata']})
             print('GET {key} -> {instance} -> {code} @{m}'.format(key=key, instance=instance, m=self.causal_metadata['metadata'], code=response.status_code))
-            print(response.text)
             self.assertEqual(response.status_code, 200)
             self.assertIn('value', response.json())
             self.assertEqual(response.json()['value'], value)
@@ -394,7 +393,7 @@ class TestHW4(unittest.TestCase):
         with self.subTest(msg='reshard at {}'.format(instance)):
             response = requests.put('http://{}:{}/shard/reshard'.format(hostname, instance.published_port), json={'shard-count': 3})
             self.assertEqual(response.status_code, 200)
-        
+        print(response.text)   
         print('... Wait for keys to rebalance')
         sleep(20)
 
@@ -454,6 +453,7 @@ class TestHW4(unittest.TestCase):
                 shard_key_counts[shard_id] = response.json()['shard-key-count']
                 self.assertGreater(shard_key_counts[shard_id], 1)
 
+        print(shard_key_counts)
         self.assertEqual(sum(shard_key_counts.values()), self.key_count,
                 msg='Sum of key-counts-in-shards must equal total-keys')
 
@@ -468,9 +468,9 @@ class TestHW4(unittest.TestCase):
             with self.subTest(msg='for shard {}'.format(shard_id)):
                 # min_share < shard_key_count < max_share
                 self.assertLess(min_share, shard_key_count           )
-                self.assertLess(           shard_key_count, max_share)
+                self.assertLess(shard_key_count, max_share)
 
-
+        print(self.causal_metadata)
         print('=== Check for correctness of {} key:value pairs in the store.'.format(self.key_count))
         for n in range(self.key_count):
 

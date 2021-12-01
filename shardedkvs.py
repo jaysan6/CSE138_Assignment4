@@ -29,34 +29,37 @@ def keyvalue_store(key):
 
     content = request.get_json()
     response = dict()
+    
+    forward = "forward" not in content.keys()
+    
+    if forward:
+        designated_shard = key_to_shard(key, len(shard_to_node))  ## forward the request if key not supposed to be put in shard
+        if designated_shard != node_to_shard[CURRENT_REPLICA]:
+            forward_node = shard_to_node.get(designated_shard)
+            for n in forward_node:
+                url = f"http://{n}/kvs/{key}"
+                if request.method == 'PUT':
+                    response = requests.put(url, json=content)
+                elif request.method == 'DELETE':
+                    response = requests.delete(url, json=content)
+                else:
+                    response = requests.get(url, json=content)
+                return response.text, response.status_code
 
-    designated_shard = key_to_shard(key, len(shard_to_node))  ## forward the request if key not supposed to be put in shard
-    if designated_shard != node_to_shard[CURRENT_REPLICA]:
-        forward_node = shard_to_node.get(designated_shard)
-        for n in forward_node:
-            url = f"http://{n}/kvs/{key}"
-            if request.method == 'PUT':
-                response = requests.put(url, json=content)
-            elif request.method == 'DELETE':
-                response = requests.delete(url, json=content)
-            else:
-                response = requests.get(url, json=content)
-            return response.text, response.status_code
 
-
-    for q in queue:
-        VC, k, val, IP, op, w = q  # extract necessary data from prior request
-        causally_consistent = list_less1(VC, VC_local, IP) and list_less2(VC, VC_local, IP)
-        if causally_consistent:  # process the request if it can be processed
-            VC_new = max_VC(VC_local, VC, view)
-            if VC_new is not None:
-                for keys in VC_new.keys():
-                    VC_local[keys] = VC_new[keys]
-            if op == "put": # do the actual operation so it catches up
-                store[k] = val
-            if op == "del" and k in store:
-                del store[k]
-            queue.remove(q)
+        for q in queue:
+            VC, k, val, IP, op, w = q  # extract necessary data from prior request
+            causally_consistent = list_less1(VC, VC_local, IP) and list_less2(VC, VC_local, IP)
+            if causally_consistent:  # process the request if it can be processed
+                VC_new = max_VC(VC_local, VC, view)
+                if VC_new is not None:
+                    for keys in VC_new.keys():
+                        VC_local[keys] = VC_new[keys]
+                if op == "put": # do the actual operation so it catches up
+                    store[k] = val
+                if op == "del" and k in store:
+                    del store[k]
+                queue.remove(q)
 
     broadcast = "broadcast" in content.keys()  # identifier for if the message is a broadcast
     VC_sender = content["causal-metadata"]
@@ -152,13 +155,14 @@ def keyvalue_store(key):
         if "value" not in content.keys():
             response = {"error": "PUT request does not specify a value"}
             return jsonify(response), 400
-
+        
         cc = True
-        if not broadcast:
-            broad(op='put')
-        else:
-            cc = check_causal_consistency(op='put')
-
+        if forward:
+            if not broadcast:
+                broad(op='put')
+            else:
+                cc = check_causal_consistency(op='put')
+                
         if not key in store:
             if cc:
                 store[key] = content["value"]
@@ -234,9 +238,10 @@ def update_new_replica():
     else:
         update = request.get_json()  # this replaces the local kvs, vc with the json specified data
         store.clear()
-        VC_local.clear()
+        if "VC" in update.keys():
+            VC_local.clear()
+            VC_local.update(update.get("VC"))
         store.update(update.get("kvs"))
-        VC_local.update(update.get("VC"))
         return jsonify({"result": "updated"}), 200
 
 @keyvalue_app.route("/VC", methods = ['GET'])
@@ -329,9 +334,6 @@ def shard_keycount_client(ID):
 # If either the shard <ID> or the node <IP:PORT> doesn’t exist, respond with a 404 error.
 # For other error conditions, respond with a 400 error. This isn’t tested
 
-
-## IDEAS: node that is being added is ASKING to be replicated onto, so the current process
-## has to delegate a node in the assigned shard to send its kvs to the asking node
 @keyvalue_app.route("/shard/add-member/<ID>", methods = ['PUT'])
 def add_member(ID):
     node = request.get_json()["socket-address"]
@@ -383,42 +385,48 @@ def add_member(ID):
 @keyvalue_app.route("/shard/reshard", methods = ['PUT'])
 def shard_reshard_client():
     req = request.get_json()
-    if "broadcast" in req.keys():
-        ntos = req.get("ntos")
-        ston = req.get("ston")
-        node_to_shard.clear()
-        shard_to_node.clear()
-        node_to_shard.update(ntos)
-        shard_to_node.update(ston)
-        shardcount = len(ston)
-
-        new_VC = {addy:"0" for addy in total_view}
-        VC_local.clear()
-        VC_local.update(new_VC)
-
-        for key,val in store.items():
-            shard = key_to_shard(key, shardcount)
-            if shard != node_to_shard[CURRENT_REPLICA]:
-                for node in shard_to_node.get(shard):
-                    response = requests.put(f'http://{node}/kvs/{key}', json={'value':val, 'causal-metadata':None})
-                    if response.status_code == 201 or response.status_code == 200:
-                        del store[key]
-        return jsonify({"success": "resharding complete"})
-
     new_shard = int(req["shard-count"])
     x,y,z = designate_shard(total_view, new_shard)
     if not z:
         return jsonify({"error": "Not enough nodes to provide fault tolerance with requested shard count"}), 400
     else:
-        def start_reshard():
-            for i in total_view:
-                url = f"http://{i}/shard/reshard"
-                data = {"ntos": x, "ston": y, "broadcast": "0"}
-                response = requests.put(url, json=data)
-        thread = threading.Thread(target=start_reshard)
-        thread.start()
+        for i in total_view:
+            url = f"http://{i}/shard/perform-reshard"
+            data = {"ntos": x, "ston": y}
+            requests.put(url, json=data)
         return jsonify({"result": "resharded"}), 200
 
+@keyvalue_app.route("/shard/perform-reshard", methods = ['PUT'])
+def reshard():
+    mapping = request.get_json()
+    ntos = mapping.get("ntos")
+    ston = mapping.get("ston")
+    node_to_shard.clear()
+    shard_to_node.clear()
+    node_to_shard.update(ntos)
+    shard_to_node.update(ston)
+    
+    view.clear()
+    view.extend(shard_to_node.get(node_to_shard.get(CURRENT_REPLICA)))
+    
+    shardcount = len(shard_to_node)
+    
+    keys = list()
+    for key,val in store.items():
+            shard = key_to_shard(key, shardcount)
+            if shard != node_to_shard[CURRENT_REPLICA]:
+                keys.append((shard, key, val))
+
+    [store.pop(k) for _,k,unused in keys]
+    
+    for s, k, v in keys:
+        for n in shard_to_node[s]:
+            try:
+                url = "http://{}/kvs/{}".format(n, k)
+                requests.put(url, json={'value':v, 'causal-metadata':None, "forward": "Yes"})
+            except requests.exceptions.ConnectionError:
+                pass
+    return jsonify({"data": shardcount}), 200
 
 if __name__ == '__main__':
     store = dict()
