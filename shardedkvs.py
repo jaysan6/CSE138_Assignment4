@@ -30,7 +30,7 @@ def keyvalue_store(key):
     content = request.get_json()
     response = dict()
 
-    designated_shard = key_to_shard(key, SHARD_COUNT)  ## forward the request if key not supposed to be put in shard
+    designated_shard = key_to_shard(key, len(shard_to_node))  ## forward the request if key not supposed to be put in shard
     if designated_shard != node_to_shard[CURRENT_REPLICA]:
         forward_node = shard_to_node.get(designated_shard)
         for n in forward_node:
@@ -384,26 +384,41 @@ def add_member(ID):
 def shard_reshard_client():
     req = request.get_json()
     if "broadcast" in req.keys():
-        # node to shard = req["map1"]
-        # shard to node = req["map2"]
-        # shardcount = len(ston) or req["ns"]
-        # for elements in store
-        #       key_to_shard(element, shardcount), if in a different shard, send put to all kvs in that shard
-        #       when successful, delete key from local kvs
-        #   otherwise continue
-        # replicate youself to all replicas in your share using put "/share" endpoint
-        # reset vector clocks? 
-        pass
+        ntos = req.get("ntos")
+        ston = req.get("ston")
+        node_to_shard.clear()
+        shard_to_node.clear()
+        node_to_shard.update(ntos)
+        shard_to_node.update(ston)
+        shardcount = len(ston)
+
+        new_VC = {addy:"0" for addy in total_view}
+        VC_local.clear()
+        VC_local.update(new_VC)
+
+        for key,val in store.items():
+            shard = key_to_shard(key, shardcount)
+            if shard != node_to_shard[CURRENT_REPLICA]:
+                for node in shard_to_node.get(shard):
+                    response = requests.put(f'http://{node}/kvs/{key}', json={'value':val, 'causal-metadata':None})
+                    if response.status_code == 201 or response.status_code == 200:
+                        del store[key]
+        return jsonify({"success": "resharding complete"})
+
     new_shard = int(req["shard-count"])
     x,y,z = designate_shard(total_view, new_shard)
     if not z:
         return jsonify({"error": "Not enough nodes to provide fault tolerance with requested shard count"}), 400
     else:
-        # set mappings to x and y (node to shard = x, shard to node = y) -- use clear/update to do so
-        # broadcast the new mappings -- attach broadcast tag ( i guess send to myself?)
-        #    url /shard/reshard for one/ or all processes in each shard_to_node list --> keep in loop , with json = {"broadcast": None, "map1": x, "map2":y, "ns": newshard}
-        # see resharding algorithm in broadcast if statement above
+        def start_reshard():
+            for i in total_view:
+                url = f"http://{i}/shard/reshard"
+                data = {"ntos": x, "ston": y, "broadcast": "0"}
+                response = requests.put(url, json=data)
+        thread = threading.Thread(target=start_reshard)
+        thread.start()
         return jsonify({"result": "resharded"}), 200
+
 
 if __name__ == '__main__':
     store = dict()
