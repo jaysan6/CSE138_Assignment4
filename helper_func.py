@@ -15,6 +15,8 @@ def key_to_shard(key, num_shard):
     val = hash_str.hexdigest()
     return f"s{int(val, 16) % num_shard}"
 
+def isAcceptable(shard_map):
+    return all([False if len(m)<2 else True for _,m in shard_map.items()])
 
 # performs the shard to node and node to shard mappings
 # returns TWO dictionaries, one mapping node to shard, another mapping shard to node

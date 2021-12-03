@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import os, requests, time, threading
-from helper_func import designate_shard, key_to_shard, list_less1, list_less2, max_VC, concurrent, equal, check_null
+from helper_func import designate_shard, key_to_shard, list_less1, list_less2, max_VC, concurrent, equal, check_null, isAcceptable
 
 keyvalue_app = Flask(__name__)
 
@@ -24,7 +24,7 @@ def keyvalue_store(key):
     if not key.strip():  # if a bunch of spaces are passed as a key
         return jsonify({"error":"no key pased"}), 404
 
-    if not inShard:
+    if not isAcceptable(shard_to_node):
         return jsonify({"error":"not in a shard"}), 400
 
     content = request.get_json()
@@ -253,7 +253,6 @@ def get_store():
     return jsonify(store), 200
 
 ##shard operations
-
 @keyvalue_app.route("/shardcount", methods = ['GET'])
 def sc():
     response = {"val": len(shard_to_node.keys())}
