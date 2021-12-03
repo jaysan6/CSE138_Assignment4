@@ -361,7 +361,7 @@ def shard_reshard_client():
 def reshard():
     mapping = request.get_json()
     ntos = mapping.get("ntos") ## update mappings
-    ston = mapping.get("ston")
+    ston = mapping.get("ston") ## due to scope issues, the clear, update method worked best
     node_to_shard.clear()
     shard_to_node.clear()
     node_to_shard.update(ntos)

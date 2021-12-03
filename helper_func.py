@@ -7,7 +7,7 @@
 #
 ####
 
-from hashlib import sha1
+from hashlib import md5
 import requests
 
 def broadcast_down(delete, dead):  # broadcast the dead process to the specified processes
@@ -17,8 +17,7 @@ def broadcast_down(delete, dead):  # broadcast the dead process to the specified
 
 ## sharding
 def key_to_shard(key, num_shard):
-    hash_str = sha1(key.encode('utf8'))
-    val = hash_str.hexdigest()
+    val = md5(key.encode('utf8')).hexdigest()
     return f"s{int(val, 16) % num_shard}"
 
 def isAcceptable(shard_map):  # check shard acceptance condition
